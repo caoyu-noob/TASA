@@ -381,7 +381,10 @@ def validation(model, eval_dataloader, eval_dataset, eval_examples, accelerator,
     prediction, prediction_json, all_nbest_json = post_processing_function(eval_examples, eval_dataset, outputs_numpy,
                                                                            args, answer_column_name)
     eval_metric = metric.compute(predictions=prediction.predictions, references=prediction.label_ids)
-    return eval_metric, prediction_json, all_nbest_json
+    adversarial_metric = None
+    if args.test_adversarial:
+        adversarial_metric = evaluate_adversarial(prediction.predictions, prediction.label_ids)
+    return eval_metric, prediction_json, all_nbest_json, adversarial_metric
 
 
 def main():
@@ -750,7 +753,7 @@ def main():
                 if completed_steps >= num_update_steps_per_epoch:
                     break
             logger.info("Start validation")
-            eval_metric, prediction_json, all_nest_json = validation(model, eval_dataloader, eval_dataset,
+            eval_metric, prediction_json, all_nest_json, _ = validation(model, eval_dataloader, eval_dataset,
                                                                      eval_examples,
                                                                      accelerator, metric, args, answer_column_name)
             logger.info(f"Evaluation metrics: {eval_metric}")
@@ -793,39 +796,43 @@ def main():
         )
 
         model = AutoModelForQuestionAnswering.from_pretrained(args.output_dir)
-        all_start_logits = []
-        all_end_logits = []
-        for step, batch in enumerate(tqdm(predict_dataloader, desc="Predicting")):
-            with torch.no_grad():
-                outputs = model(**batch)
-                start_logits = outputs.start_logits
-                end_logits = outputs.end_logits
-
-                if not args.pad_to_max_length:  # necessary to pad predictions and labels for being gathered
-                    start_logits = accelerator.pad_across_processes(start_logits, dim=1, pad_index=-100)
-                    end_logits = accelerator.pad_across_processes(start_logits, dim=1, pad_index=-100)
-
-                all_start_logits.append(accelerator.gather(start_logits).cpu().numpy())
-                all_end_logits.append(accelerator.gather(end_logits).cpu().numpy())
-
-        max_len = max([x.shape[1] for x in all_start_logits])  # Get the max_length of the tensor
-        # concatenate the numpy array
-        start_logits_concat = create_and_fill_np_array(all_start_logits, predict_dataset, max_len)
-        end_logits_concat = create_and_fill_np_array(all_end_logits, predict_dataset, max_len)
-
-        # delete the list of numpy arrays
-        del all_start_logits
-        del all_end_logits
-
-        outputs_numpy = (start_logits_concat, end_logits_concat)
-        prediction, prediction_json, all_nbest_json = post_processing_function(predict_examples, predict_dataset,
-                                                                               outputs_numpy, args,
-                                                                               answer_column_name)
-        predict_metric = metric.compute(predictions=prediction.predictions, references=prediction.label_ids)
+        model, predict_dataloader = accelerator.prepare(
+            model, predict_dataloader
+        )
+        predict_metric, prediction_json, all_nbest_json, adversarial_metric = validation(model, predict_dataloader,
+                predict_dataset, predict_examples, accelerator, metric, args, answer_column_name)
+        # all_start_logits = []
+        # all_end_logits = []
+        # for step, batch in enumerate(tqdm(predict_dataloader, desc="Predicting")):
+        #     with torch.no_grad():
+        #         outputs = model(**batch)
+        #         start_logits = outputs.start_logits
+        #         end_logits = outputs.end_logits
+        #
+        #         if not args.pad_to_max_length:  # necessary to pad predictions and labels for being gathered
+        #             start_logits = accelerator.pad_across_processes(start_logits, dim=1, pad_index=-100)
+        #             end_logits = accelerator.pad_across_processes(start_logits, dim=1, pad_index=-100)
+        #
+        #         all_start_logits.append(accelerator.gather(start_logits).cpu().numpy())
+        #         all_end_logits.append(accelerator.gather(end_logits).cpu().numpy())
+        #
+        # max_len = max([x.shape[1] for x in all_start_logits])  # Get the max_length of the tensor
+        # # concatenate the numpy array
+        # start_logits_concat = create_and_fill_np_array(all_start_logits, predict_dataset, max_len)
+        # end_logits_concat = create_and_fill_np_array(all_end_logits, predict_dataset, max_len)
+        #
+        # # delete the list of numpy arrays
+        # del all_start_logits
+        # del all_end_logits
+        #
+        # outputs_numpy = (start_logits_concat, end_logits_concat)
+        # prediction, prediction_json, all_nbest_json = post_processing_function(predict_examples, predict_dataset,
+        #                                                                        outputs_numpy, args,
+        #                                                                        answer_column_name)
+        # predict_metric = metric.compute(predictions=prediction.predictions, references=prediction.label_ids)
         save_prediction_json(args.output_dir, prediction_json, all_nbest_json, prefix="test")
         logger.info(f"Predict metrics: {predict_metric}")
-        if args.test_adversarial:
-            adversarial_metric = evaluate_adversarial(prediction.predictions, prediction.label_ids)
+        if adversarial_metric:
             logger.info(f"Adversarial metrics: {adversarial_metric}")
 
 if __name__ == "__main__":
