@@ -91,8 +91,8 @@ def str_to_time(time_str: str) -> datetime.datetime:
 
 
 def read_all_datasets(
-    train_data_path: str,
-    dataset_reader: DatasetReader,
+    train_data_path: str = None,
+    dataset_reader: DatasetReader = None,
     validation_dataset_reader: DatasetReader = None,
     validation_data_path: str = None,
     test_data_path: str = None,
@@ -102,11 +102,13 @@ def read_all_datasets(
     dictionary mapping dataset name ("train", "validation" or "test") to the iterable resulting from
     `reader.read(filename)`.
     """
+    if train_data_path is not None:
+        logger.info("Reading training data from %s", train_data_path)
+        train_data = dataset_reader.read(train_data_path)
 
-    logger.info("Reading training data from %s", train_data_path)
-    train_data = dataset_reader.read(train_data_path)
-
-    datasets = {"train": train_data}
+        datasets = {"train": train_data}
+    else:
+        datasets = {}
 
     validation_dataset_reader = validation_dataset_reader or dataset_reader
 

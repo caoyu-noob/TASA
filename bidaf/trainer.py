@@ -971,6 +971,44 @@ class GradientDescentTrainer(Trainer):
             # make sure pending events are flushed to disk and files are closed properly
             self._tensorboard.close()
 
+    def predict(self) -> Dict[str, Any]:
+        try:
+            return self._try_predict()
+        finally:
+            self._tensorboard.close()
+
+    def _try_predict(self) -> Dict[str, Any]:
+        metrics: Dict[str, Any] = {}
+        if self._validation_data_loader is not None:
+            with torch.no_grad():
+                # We have a validation set, so compute all the metrics on it.
+                val_loss, val_reg_loss, num_batches = self._validation_loss(-1)
+
+                # It is safe again to wait till the validation is done. This is
+                # important to get the metrics right.
+                if self._distributed:
+                    dist.barrier()
+
+                val_metrics = training_util.get_metrics(
+                    self.model,
+                    val_loss,
+                    val_reg_loss,
+                    batch_loss=None,
+                    batch_reg_loss=None,
+                    num_batches=num_batches,
+                    reset=True,
+                    world_size=self._world_size,
+                    cuda_device=self.cuda_device,
+                )
+            for key, value in val_metrics.items():
+                metrics[key] = value
+            if self._serialization_dir and self._master:
+                common_util.dump_metrics(
+                    os.path.join(self._serialization_dir, f"metrics_predict.json"),
+                    metrics,
+                )
+        return metrics
+
     def _try_train(self) -> Dict[str, Any]:
         try:
             epoch_counter = self._restore_checkpoint()
@@ -1242,6 +1280,8 @@ class GradientDescentTrainer(Trainer):
         epoch_callbacks: List[EpochCallback] = None,
         end_callbacks: List[EpochCallback] = None,
         trainer_callbacks: List[TrainerCallback] = None,
+        do_predict: bool = False,
+        model_path: str = None,
     ) -> "Trainer":
         """
         This method exists so that we can have a documented method to construct this class using

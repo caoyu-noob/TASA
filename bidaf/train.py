@@ -26,7 +26,7 @@ from allennlp.common import util as common_util
 from allennlp.common.plugins import import_plugins
 from allennlp.data import DatasetReader, Vocabulary
 from allennlp.data import DataLoader
-from allennlp.models.archival import archive_model, CONFIG_NAME, verify_include_in_archive
+from allennlp.models.archival import archive_model, CONFIG_NAME, verify_include_in_archive, load_archive
 from allennlp.models.model import _DEFAULT_WEIGHTS, Model
 from bidaf.trainer import Trainer
 from bidaf import util as training_util
@@ -246,7 +246,7 @@ def train_model(
             file_friendly_logging=file_friendly_logging,
         )
 
-        if not dry_run:
+        if not dry_run and not args.do_predict:
             archive_model(serialization_dir, include_in_archive=include_in_archive)
         return model
 
@@ -467,8 +467,10 @@ def _train_worker(
     try:
         if distributed:  # let the setup get ready for all the workers
             dist.barrier()
-
-        metrics = train_loop.run()
+        if args.do_predict:
+            metrics = train_loop.predict()
+        else:
+            metrics = train_loop.run()
     except KeyboardInterrupt:
         # if we have completed an epoch, try to create a model archive.
         if master and os.path.exists(os.path.join(serialization_dir, _DEFAULT_WEIGHTS)):
@@ -532,6 +534,9 @@ class TrainModel(Registrable):
     def run(self) -> Dict[str, Any]:
         return self.trainer.train()
 
+    def predict(self) -> Dict[str, Any]:
+        return self.trainer.predict()
+
     def finish(self, metrics: Dict[str, Any]):
         if self.evaluation_data_loader is not None and self.evaluate_on_test:
             logger.info("The model will be evaluated using the best epoch weights.")
@@ -573,6 +578,8 @@ class TrainModel(Registrable):
         batch_weight_key: str = "",
         cache_file: str = None,
         vocab_file: str = None,
+        do_predict: bool = False,
+        model_path: str = None,
     ) -> "TrainModel":
         """
         This method is intended for use with our `FromParams` logic, to construct a `TrainModel`
@@ -653,15 +660,25 @@ class TrainModel(Registrable):
             with open(cache_file, "rb") as f:
                 datasets = pickle.load(f)
         else:
-            datasets = training_util.read_all_datasets(
-                train_data_path=train_data_path,
-                dataset_reader=dataset_reader,
-                validation_dataset_reader=validation_dataset_reader,
-                validation_data_path=validation_data_path,
-                test_data_path=test_data_path,
-            )
-            with open(cache_file, "wb") as f:
-                pickle.dump(datasets, f)
+            if do_predict:
+                datasets = training_util.read_all_datasets(
+                    dataset_reader=dataset_reader,
+                    validation_dataset_reader=validation_dataset_reader,
+                    validation_data_path=validation_data_path,
+                    test_data_path=test_data_path,
+                )
+                with open(cache_file, "wb") as f:
+                    pickle.dump(datasets, f)
+            else:
+                datasets = training_util.read_all_datasets(
+                    train_data_path=train_data_path,
+                    dataset_reader=dataset_reader,
+                    validation_dataset_reader=validation_dataset_reader,
+                    validation_data_path=validation_data_path,
+                    test_data_path=test_data_path,
+                )
+                with open(cache_file, "wb") as f:
+                    pickle.dump(datasets, f)
 
         if datasets_for_vocab_creation:
             for key in datasets_for_vocab_creation:
@@ -688,7 +705,11 @@ class TrainModel(Registrable):
                 vocabulary_.save_to_files(vocab_file)
         vocabulary_.save_to_files(os.path.join(serialization_dir, "vocabulary"))
 
-        model_ = model.construct(vocab=vocabulary_, serialization_dir=serialization_dir)
+        if model_path is not None:
+            archive = load_archive(model_path, cuda_device=-1, overrides="")
+            model_ = archive.model
+        else:
+            model_ = model.construct(vocab=vocabulary_, serialization_dir=serialization_dir)
 
         # Initializing the model can have side effect of expanding the vocabulary.
         # Save the vocab only in the master. In the degenerate non-distributed
@@ -701,7 +722,9 @@ class TrainModel(Registrable):
         for dataset in datasets.values():
             dataset.index_with(model_.vocab)
 
-        data_loader_ = data_loader.construct(dataset=datasets["train"])
+        data_loader_ = None
+        if not do_predict:
+            data_loader_ = data_loader.construct(dataset=datasets["train"])
         validation_data = datasets.get("validation")
         validation_data_loader_: Optional[DataLoader] = None
         if validation_data is not None:
