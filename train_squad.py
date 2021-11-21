@@ -128,7 +128,7 @@ def parse_args():
     parser.add_argument(
         "--per_device_train_batch_size",
         type=int,
-        default=2,
+        default=4,
         help="Batch size (per device) for the training dataloader.",
     )
     parser.add_argument(
@@ -351,6 +351,7 @@ def post_processing_function(examples, features, predictions, args, answer_colum
 
 def validation(model, eval_dataloader, eval_dataset, eval_examples, accelerator, metric, args, answer_column_name):
     # Validation
+    model.eval()
     all_start_logits = []
     all_end_logits = []
     tqdm_data = tqdm(eval_dataloader)
@@ -442,7 +443,10 @@ def main():
     #     raw_datasets = load_dataset(extension, data_files=data_files, field="data")
 
     raw_datasets = load_dataset(args.dataset_name, ignore_verifications=True)
-    metric = load_metric("./metrics/squad")
+    if args.version_2_with_negative:
+        metric = load_metric("./metrics/squad_v2")
+    else:
+        metric = load_metric("./metrics/squad")
 
     # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
     # https://huggingface.co/docs/datasets/loading_datasets.html.
@@ -632,9 +636,9 @@ def main():
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
         train_dataset = raw_datasets["train"]
-        if args.max_train_samples is not None:
-            # We will select sample from whole data if agument is specified
-            train_dataset = train_dataset.select(range(args.max_train_samples))
+        # if args.max_train_samples is not None:
+        #     # We will select sample from whole data if agument is specified
+        #     train_dataset = train_dataset.select(range(args.max_train_samples))
         # Create train feature from dataset
         train_dataset = train_dataset.map(
             prepare_train_features,
@@ -643,9 +647,9 @@ def main():
             remove_columns=column_names,
             load_from_cache_file=not args.overwrite_cache,
         )
-        if args.max_train_samples is not None:
-            # Number of samples might increase during Feature Creation, We select only specified max samples
-            train_dataset = train_dataset.select(range(args.max_train_samples))
+        # if args.max_train_samples is not None:
+        #     # Number of samples might increase during Feature Creation, We select only specified max samples
+        #     train_dataset = train_dataset.select(range(args.max_train_samples))
 
         if "validation" not in raw_datasets:
             raise ValueError("--do_eval requires a validation dataset")
@@ -662,9 +666,9 @@ def main():
             load_from_cache_file=not args.overwrite_cache,
         )
 
-        if args.max_eval_samples is not None:
-            # During Feature creation dataset samples might increase, we will select required samples again
-            eval_dataset = eval_dataset.select(range(args.max_eval_samples))
+        # if args.max_eval_samples is not None:
+        #     # During Feature creation dataset samples might increase, we will select required samples again
+        #     eval_dataset = eval_dataset.select(range(args.max_eval_samples))
 
         # Log a few random samples from the training set:
         for index in random.sample(range(len(train_dataset)), 3):
@@ -757,18 +761,32 @@ def main():
                                                                      eval_examples,
                                                                      accelerator, metric, args, answer_column_name)
             logger.info(f"Evaluation metrics: {eval_metric}")
-            if eval_metric["exact_match"] + eval_metric["f1"] > best_metric:
-                best_metric = eval_metric["exact_match"] + eval_metric["f1"]
-                best_acc, best_f1 = eval_metric["exact_match"], eval_metric["f1"]
-                if args.output_dir is not None:
-                    accelerator.wait_for_everyone()
-                    unwrapped_model = accelerator.unwrap_model(model)
-                    unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
-                    save_prediction_json(args.output_dir, prediction_json, all_nest_json)
-                logger.info("Current model BEAT the previous best one, model has been saved!")
+            if not args.version_2_with_negative:
+                if eval_metric["exact_match"] + eval_metric["f1"] > best_metric:
+                    best_metric = eval_metric["exact_match"] + eval_metric["f1"]
+                    best_acc, best_f1 = eval_metric["exact_match"], eval_metric["f1"]
+                    if args.output_dir is not None:
+                        accelerator.wait_for_everyone()
+                        unwrapped_model = accelerator.unwrap_model(model)
+                        unwrapped_model.save_pretrained(args.output_dir)
+                        save_prediction_json(args.output_dir, prediction_json, all_nest_json)
+                    logger.info("Current model BEAT the previous best one, model has been saved!")
+                else:
+                    logger.info("Current model CANNOT BEAT the previous best one, previous best is EM %.5f, F1 %.5f",
+                                best_acc, best_f1)
             else:
-                logger.info("Current model CANNOT BEAT the previous best one, previous best is EM %.5f, F1 %.5f",
-                            best_acc, best_f1)
+                if eval_metric["exact"] + eval_metric["f1"] > best_metric:
+                    best_metric = eval_metric["exact"] + eval_metric["f1"]
+                    best_acc, best_f1 = eval_metric["exact"], eval_metric["f1"]
+                    if args.output_dir is not None:
+                        accelerator.wait_for_everyone()
+                        unwrapped_model = accelerator.unwrap_model(model)
+                        unwrapped_model.save_pretrained(args.output_dir)
+                        save_prediction_json(args.output_dir, prediction_json, all_nest_json)
+                    logger.info("Current model BEAT the previous best one, model has been saved!")
+                else:
+                    logger.info("Current model CANNOT BEAT the previous best one, previous best is EM %.5f, F1 %.5f",
+                                best_acc, best_f1)
 
     # The prediction procedure
     else:
