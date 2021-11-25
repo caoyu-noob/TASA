@@ -169,14 +169,15 @@ class QAEvaluator():
         tokenized_examples, start_positions, end_positions = self.prepare_features(beam_contexts, question)
         dataset = EvaluateDataset(tokenized_examples)
         data_loader = DataLoader(dataset, num_workers=0, batch_size=self.batch_size, collate_fn=self.collate_fn)
+        self.model, data_loader = self.accelerator.prepare(self.model, data_loader)
         if mode == "argmax":
             all_start_logits, all_end_logits = self.validation(self.model, data_loader)
             best_start_position = torch.argmax(all_start_logits, dim=1)
             best_end_position = torch.argmax(all_end_logits, dim=1)
             zeros = torch.zeros_like(best_start_position)
-            start_has = (zeros == best_start_position)
-            end_has = (zeros == best_end_position)
-            return torch.logical_or(start_has, end_has)
+            start_has = (zeros != best_start_position)
+            end_has = (zeros != best_end_position)
+            return torch.logical_and(start_has, end_has)
         elif mode == "threshold":
             all_start_logits, all_end_logits = self.validation(self.model, data_loader, softmax=False)
             batch_size = all_start_logits.size(0)
