@@ -1,4 +1,5 @@
 import torch
+import logging
 
 def pad_sequence(sequences, batch_first=False, padding_value=0, left=False):
     # assuming trailing dimensions and type of all the Tensors
@@ -20,3 +21,14 @@ def pad_sequence(sequences, batch_first=False, padding_value=0, left=False):
         out_tensor[s_slice] = tensor
 
     return out_tensor
+
+def config_logger(log_path):
+    logger = logging.getLogger()
+    logging.basicConfig(format='%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s',
+        level=logging.INFO)
+    file_handler = logging.FileHandler(log_path, mode='w')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(
+        logging.Formatter('%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s'))
+    logger.addHandler(file_handler)
+    return logger
