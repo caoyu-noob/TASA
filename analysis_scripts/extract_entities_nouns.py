@@ -1,6 +1,7 @@
 import spacy
 import json
 from tqdm import tqdm
+from nltk.corpus import wordnet as wn
 
 file_list = ["../data/squad/train-v1.1.json", "../data/squad/dev-v1.1.json", "../data/squad2/train-v2.0.json",
              "../data/squad2/dev-v2.0.json"]
@@ -23,9 +24,9 @@ for context in tqdm(processed_contexts):
         if not ent_dict.__contains__(ent.label_):
             ent_dict[ent.label_] = set()
         ent_dict[ent.label_].add(ent.text)
-    for token in context:
-        if token.pos_ == "NOUN":
-            noun_list.add(token.lemma_)
+    # for token in context:
+    #     if token.pos_ == "NOUN":
+    #         noun_list.add(token.lemma_)
 
 for k, v in ent_dict.items():
     ent_dict[k] = list(v)
