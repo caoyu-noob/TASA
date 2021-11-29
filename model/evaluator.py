@@ -141,7 +141,8 @@ class QAEvaluator():
             data_dict[k] = pad_sequence([d[k] for d in data], batch_first=True, padding_value=self.tokenizer.pad_token_id)
         return data_dict
 
-    def evaluate_sample_logits(self, beam_contexts, question, answer_start_char, answer_end_char, single_question=True):
+    def evaluate_sample_logits(self, beam_contexts, question, answer_start_char, answer_end_char, single_question=True,
+                               return_best_position=False):
         '''
 
         :param beam_contexts (obj: list): the list of a series of context
@@ -158,6 +159,11 @@ class QAEvaluator():
         all_start_logits, all_end_logits = self.validation(self.model, data_loader)
         answer_start_logits = all_start_logits.gather(1, torch.tensor([start_positions]).t())
         answer_end_logits = all_end_logits.gather(1, torch.tensor([end_positions]).t())
+        if return_best_position:
+            best_start_positions = torch.argmax(all_start_logits, dim=1)
+            best_end_positions = torch.argmax(all_end_logits, dim=1)
+            return answer_start_logits.squeeze(-1), answer_end_logits.squeeze(-1), start_positions, end_positions, \
+                   best_start_positions, best_end_positions
         return answer_start_logits.squeeze(-1), answer_end_logits.squeeze(-1)
 
     def evaluate_whether_has_answer(self, beam_contexts, question, mode="argmax", th=0.01):
