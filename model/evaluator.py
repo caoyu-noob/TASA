@@ -101,10 +101,13 @@ class QAEvaluator():
                     end_positions.append(token_end_index + 1)
         return tokenized_examples, start_positions, end_positions
 
-    def validation(self, model, eval_dataloader, softmax=False):
+    def validation(self, model, eval_dataloader, softmax=False, desc=None):
         # Validation
         all_start_logits, all_end_logits = None, None
-        for step, batch in enumerate(eval_dataloader):
+        data_loader = eval_dataloader
+        if desc is not None:
+            data_loader = tqdm(eval_dataloader, desc=desc)
+        for step, batch in enumerate(data_loader):
             with torch.no_grad():
                 outputs = model(**batch)
                 start_logits = outputs.start_logits
@@ -142,7 +145,7 @@ class QAEvaluator():
         return data_dict
 
     def evaluate_sample_logits(self, beam_contexts, question, answer_start_char, answer_end_char, single_question=True,
-                               return_best_position=False):
+                               return_best_position=False, desc=None):
         '''
 
         :param beam_contexts (obj: list): the list of a series of context
@@ -156,7 +159,7 @@ class QAEvaluator():
         dataset = EvaluateDataset(tokenized_examples)
         data_loader = DataLoader(dataset, num_workers=0, batch_size=self.batch_size, collate_fn=self.collate_fn)
         self.model, data_loader = self.accelerator.prepare(self.model, data_loader)
-        all_start_logits, all_end_logits = self.validation(self.model, data_loader)
+        all_start_logits, all_end_logits = self.validation(self.model, data_loader, desc=desc)
         answer_start_logits = all_start_logits.gather(1, torch.tensor([start_positions]).t())
         answer_end_logits = all_end_logits.gather(1, torch.tensor([end_positions]).t())
         if return_best_position:
