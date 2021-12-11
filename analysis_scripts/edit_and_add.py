@@ -25,7 +25,7 @@ AFTER_GOLD = "after"
 EDIT_CANDIDATE_POS = ["VERB", "NOUN", "ADJ", "ADV"]
 ANSWER_POS = ["ADV", "ADJ", "NOUN", "VERB", "NUM"]
 POS_ALIGN = ["VERB", "NOUN", "ADJ"]
-MASK_SYMBOL = "[UNK]"
+MASK_SYMBOLS = {"bert": "[UNK]", "bidaf": "@@UNKNOWN@@"}
 ADVERSARIAL_MODE_NO = "NO"
 ADVERSARIAL_MODE_EDIT = "EDIT"
 ADVERSARIAL_MODE_ADD = "ADD"
@@ -162,6 +162,17 @@ def get_args():
         default=-2,
         help="the threshold for filtering the edited sentence, value larger than it will be remained",
     )
+
+    parser.add_argument(
+        "--sample_start_index",
+        type=int,
+        default=-1,
+    )
+    parser.add_argument(
+        "--sample_end_index",
+        type=int,
+        default=-1,
+    )
     return parser.parse_args()
 
 class AttackSample:
@@ -187,6 +198,7 @@ class QAAttacker:
         self.dataset_type = args.target_dataset_type
         self.filter_th = args.filter_th
         self.spacy_nlp = spacy.load("en_core_web_md")
+        self.model_type = args.target_model_type
         self.logger = logger
 
         '''Load the synonym dict from PPDB'''
@@ -232,6 +244,7 @@ class QAAttacker:
         miss_cnt = 0
         for i, sample in enumerate(tqdm(samples, desc="get gold sent")):
             answer_starts = [a["answer_start"] for a in sample["answers"]]
+            sample["adversarial_mode"] = ADVERSARIAL_MODE_NO
             answer_ends = [a["answer_start"] + len(a["text"]) for a in sample["answers"]]
             sent_hits = [0] * len(sample["context_sents"])
             sent_correspond_answer_index = [[] for _ in range(len(sample["context_sents"]))]
@@ -268,12 +281,18 @@ class QAAttacker:
                                 best_answer["answer_start"] += len(coref[0]) - (coref[2] - coref[1])
                                 best_answer["answer_end"] += len(coref[0]) - (coref[2] - coref[1])
                 new_start, new_end = best_answer["answer_start"] - gold_sent_offset[0], best_answer["answer_end"] - gold_sent_offset[0]
-                assert gold_sent[new_start:new_end] == best_answer["text"]
-                sample["gold_sent"] = sample["context_sents"][sorted_sent_index[0]]
-                sample["gold_sent_index"] = sorted_sent_index[0]
-                sample["best_answer"] = best_answer
-                sample["gold_sent_front_offset"] = sample["context_sents_offsets"][sample["gold_sent_index"]][0]
-                samples[i] = sample
+                if gold_sent[new_start:new_end] != best_answer["text"]:
+                    print("Error when obtaining gold sent")
+                    sample["best_answer"] = best_answer
+                    samples[i] = sample
+                    miss_cnt += 1
+                else:
+                    # assert gold_sent[new_start:new_end] == best_answer["text"]
+                    sample["gold_sent"] = sample["context_sents"][sorted_sent_index[0]]
+                    sample["gold_sent_index"] = sorted_sent_index[0]
+                    sample["best_answer"] = best_answer
+                    sample["gold_sent_front_offset"] = sample["context_sents_offsets"][sample["gold_sent_index"]][0]
+                    samples[i] = sample
             else:
                 best_answer = max(sample["answers"], key=selected_answers.count)
                 best_answer["answer_end"] = best_answer["answer_start"] + len(best_answer["text"])
@@ -337,6 +356,7 @@ class QAAttacker:
         masked_questions, original_questions = [], []
         masked_answer_starts, masked_answer_ends, answer_starts, answer_ends = [], [], [], []
         mask_index = 0
+        mask_symbol = MASK_SYMBOLS[self.model_type]
         for i, sample in enumerate(samples):
             context_sents = sample["context_sents"]
             original_contexts.append(" ".join(context_sents))
@@ -349,11 +369,11 @@ class QAAttacker:
                     new_answer_start, new_answer_end = sample["best_answer"]["answer_start"], sample["best_answer"][
                         "answer_end"]
                     if edit_candidate[0].idx < answer_start_char_in_gold:
-                        new_answer_start += (len(MASK_SYMBOL) - len(edit_candidate[0]))
-                        new_answer_end += (len(MASK_SYMBOL) - len(edit_candidate[0]))
+                        new_answer_start += (len(mask_symbol) - len(edit_candidate[0]))
+                        new_answer_end += (len(mask_symbol) - len(edit_candidate[0]))
                     masked_answer_starts.append(new_answer_start)
                     masked_answer_ends.append(new_answer_end)
-                    masked_gold_sent = sample["gold_sent"][:edit_candidate[0].idx] + MASK_SYMBOL + \
+                    masked_gold_sent = sample["gold_sent"][:edit_candidate[0].idx] + mask_symbol + \
                                        sample["gold_sent"][edit_candidate[0].idx + len(edit_candidate[0]):]
                     masked_contexts.append(" ".join(context_sents[:sample["gold_sent_index"]] + [masked_gold_sent] +
                                                     context_sents[sample["gold_sent_index"] + 1:]))
@@ -460,7 +480,6 @@ class QAAttacker:
             if len(sample["edit_synonyms"]) == 0:
                 sample["edited_gold_sents"] = []
                 sample["edited_answer_starts"] = []
-                sample["adversarial_mode"] = ADVERSARIAL_MODE_NO
                 samples[i] = sample
             elif len(sample["edit_synonyms"]) > 0:
                 edited_gold_sents = [sample["gold_sent"]]
@@ -505,7 +524,7 @@ class QAAttacker:
                             best_indices = list(range(answer_start_logits.size(0)))
                         else:
                             best_indices = torch.topk(answer_start_logits + answer_end_logits, k=self.beam_size,
-                                                      largest=False)[1].squeeze().tolist()
+                                                      largest=False)[1].tolist()
                         edited_gold_sents = [replaced_gold_sents[index] for index in best_indices]
                         answer_starts = [replaced_answer_starts[index] for index in best_indices]
                         answer_ends = [replaced_answer_ends[index] for index in best_indices]
@@ -542,7 +561,7 @@ class QAAttacker:
         for gold_sent in edited_gold_sents:
             sample["context_sents"][sample["gold_sent_index"]] = gold_sent
             new_contexts.append(" ".join(sample["context_sents"]))
-        has_answer = self.model_evaluator.evaluate_whether_has_answer(new_contexts, sample["question"]).tolist()
+        has_answer = self.has_answer_evaluator.evaluate_whether_has_answer(new_contexts, sample["question"]).tolist()
         filtered_gold_sents = [item for (item, has) in zip(edited_gold_sents, has_answer) if has]
         filtered_answer_starts = [item for (item, has) in zip(answer_starts, has_answer) if has]
         if len(filtered_gold_sents) == 0:
@@ -573,8 +592,12 @@ class QAAttacker:
                 matched_positions = [m.span(0) for m in re.finditer(target, texts[i])]
             except:
                 print("Error when using re to find matched positions")
-                pos = texts[i].index(target)
-                matched_positions = [(pos, pos + len(target))]
+                try:
+                    pos = texts[i].index(target)
+                    matched_positions = [(pos, pos + len(target))]
+                except:
+                    print("Cannot using index to find matched positions")
+                    continue
             if len(answer_starts_in_text) == 0:
                 answer_start, answer_end = 0, 0
             else:
@@ -624,7 +647,7 @@ class QAAttacker:
             best_indices = list(range(answer_start_logits.size(0)))
         else:
             best_indices = \
-                torch.topk(answer_start_logits + answer_end_logits, k=self.beam_size, largest=False)[1].squeeze()
+                torch.topk(answer_start_logits + answer_end_logits, k=self.beam_size, largest=False)[1].tolist()
         contexts_with_distractor = [new_contexts[index] for index in best_indices]
         answer_starts = [new_answer_starts[index] for index in best_indices]
         answer_ends = [new_answer_ends[index] for index in best_indices]
@@ -704,15 +727,18 @@ class QAAttacker:
             for i, target_noun in enumerate(sample["add_candidates"]["nouns"]):
                 if edit_cnt > self.max_edit_num_in_add:
                     break
-                sampled_nouns = self._sample_token_same_level_based_on_pos(target_noun.lemma_, NOUN_POS_IN_WORDNET)
+                sampled_nouns = self._sample_token_same_level_based_on_pos(target_noun.lemma_.lower(), NOUN_POS_IN_WORDNET)
                 if len(sampled_nouns) == 0:
                     continue
-                sampled_nouns = self._get_inflect_aligned_tokens(sampled_nouns, target_noun)
+                inflected_sampled_nouns = self._get_inflect_aligned_tokens(sampled_nouns, target_noun)
+                if len(inflected_sampled_nouns) == 0:
+                    inflected_sampled_nouns = sampled_nouns
                 distractors, contexts_with_distractor, answer_starts, answer_ends, distractor_starts, distractor_ends, \
                 answer_starts_in_distractor, answer_ends_in_distractor = \
-                    self._replace_text_and_evaluate(sample, distractors, target_noun.text, sampled_nouns, answer_starts,
-                                                    answer_ends, answer_starts_in_distractor, answer_ends_in_distractor,
-                                                    contexts_with_distractor, distractor_starts, distractor_ends)
+                    self._replace_text_and_evaluate(sample, distractors, target_noun.text, inflected_sampled_nouns,
+                                                    answer_starts, answer_ends, answer_starts_in_distractor,
+                                                    answer_ends_in_distractor, contexts_with_distractor,
+                                                    distractor_starts, distractor_ends)
                 edit_cnt += 1
         return contexts_with_distractor, answer_starts, answer_ends, distractor_starts, distractor_ends, \
                answer_starts_in_distractor, answer_ends_in_distractor, edit_cnt
@@ -725,36 +751,37 @@ class QAAttacker:
         new_contexts, new_distractor_starts, new_distractor_ends, new_answer_starts_in_distractor, \
                 new_answer_ends_in_distractor = [], [], [], [], []
         new_answer_starts, new_answer_ends = [], []
-        for i in range(len(contexts_with_distractors)):
-            for replaced_answer in replaced_answers[i]:
-                cur_context_with_distractor = \
-                        contexts_with_distractors[i][:distractor_starts[i] + answer_starts_in_distractor[i]] + \
-                        replaced_answer + \
-                        contexts_with_distractors[i][distractor_starts[i] + answer_ends_in_distractor[i]:]
-                new_contexts.append(cur_context_with_distractor)
-                offset = len(replaced_answer) - (answer_ends_in_distractor[i] - answer_starts_in_distractor[i])
-                new_distractor_starts.append(distractor_starts[i])
-                new_distractor_ends.append(distractor_ends[i] + offset)
-                new_answer_starts_in_distractor.append(answer_starts_in_distractor[i])
-                new_answer_ends_in_distractor.append(answer_ends_in_distractor[i] + offset)
-            new_answer_starts.extend([answer_starts[i]] * len(replaced_answers[i]))
-            new_answer_ends.extend([answer_ends[i]] * len(replaced_answers[i]))
-        answer_start_logits, answer_end_logits = \
-            self.model_evaluator.evaluate_sample_logits(new_contexts, sample["question"], new_answer_starts, new_answer_ends)
-        if answer_start_logits.size(0) < self.beam_size:
-            best_indices = list(range(answer_start_logits.size(0)))
-        else:
-            best_indices = \
-                torch.topk(answer_start_logits + answer_end_logits, k=self.beam_size, largest=False)[1].squeeze()
-        contexts_with_distractors = [new_contexts[index] for index in best_indices]
-        replaced_answers = list(chain(*replaced_answers))
-        answers = [replaced_answers[index] for index in best_indices]
-        answer_starts = [new_answer_starts[index] for index in best_indices]
-        answer_ends = [new_answer_ends[index] for index in best_indices]
-        distractor_starts = [new_distractor_starts[index] for index in best_indices]
-        distractor_ends = [new_distractor_ends[index] for index in best_indices]
-        answer_starts_in_distractor = [new_answer_starts_in_distractor[index] for index in best_indices]
-        answer_ends_in_distractor = [new_answer_ends_in_distractor[index] for index in best_indices]
+        if len(replaced_answers) > 0:
+            for i in range(len(contexts_with_distractors)):
+                for replaced_answer in replaced_answers[i]:
+                    cur_context_with_distractor = \
+                            contexts_with_distractors[i][:distractor_starts[i] + answer_starts_in_distractor[i]] + \
+                            replaced_answer + \
+                            contexts_with_distractors[i][distractor_starts[i] + answer_ends_in_distractor[i]:]
+                    new_contexts.append(cur_context_with_distractor)
+                    offset = len(replaced_answer) - (answer_ends_in_distractor[i] - answer_starts_in_distractor[i])
+                    new_distractor_starts.append(distractor_starts[i])
+                    new_distractor_ends.append(distractor_ends[i] + offset)
+                    new_answer_starts_in_distractor.append(answer_starts_in_distractor[i])
+                    new_answer_ends_in_distractor.append(answer_ends_in_distractor[i] + offset)
+                new_answer_starts.extend([answer_starts[i]] * len(replaced_answers[i]))
+                new_answer_ends.extend([answer_ends[i]] * len(replaced_answers[i]))
+            answer_start_logits, answer_end_logits = \
+                self.model_evaluator.evaluate_sample_logits(new_contexts, sample["question"], new_answer_starts, new_answer_ends)
+            if answer_start_logits.size(0) < self.beam_size:
+                best_indices = list(range(answer_start_logits.size(0)))
+            else:
+                best_indices = \
+                    torch.topk(answer_start_logits + answer_end_logits, k=self.beam_size, largest=False)[1].tolist()
+            contexts_with_distractors = [new_contexts[index] for index in best_indices]
+            replaced_answers = list(chain(*replaced_answers))
+            answers = [replaced_answers[index] for index in best_indices]
+            answer_starts = [new_answer_starts[index] for index in best_indices]
+            answer_ends = [new_answer_ends[index] for index in best_indices]
+            distractor_starts = [new_distractor_starts[index] for index in best_indices]
+            distractor_ends = [new_distractor_ends[index] for index in best_indices]
+            answer_starts_in_distractor = [new_answer_starts_in_distractor[index] for index in best_indices]
+            answer_ends_in_distractor = [new_answer_ends_in_distractor[index] for index in best_indices]
         return contexts_with_distractors, answers, answer_starts, answer_ends, distractor_starts, distractor_ends, \
                answer_starts_in_distractor, answer_ends_in_distractor
 
@@ -777,12 +804,15 @@ class QAAttacker:
                     if token.pos_ == "NUM":
                         sampled_tokens = random.sample(pos_vocab_dict[token.pos_], self.ent_noun_sample_num)
                     else:
-                        sampled_tokens = self._sample_token_same_level_based_on_pos(token.lemma_, token.pos_.lower())
+                        sampled_tokens = self._sample_token_same_level_based_on_pos(token.lemma_.lower(), token.pos_.lower())
                         if len(sampled_tokens) == 0:
                             sampled_tokens = random.sample(pos_vocab_dict[token.pos_], self.ent_noun_sample_num)
-                    sampled_tokens = random.sample(pos_vocab_dict[token.pos_], self.ent_noun_sample_num)
                     if token.pos_ in POS_ALIGN:
-                        sampled_tokens = self._get_inflect_aligned_tokens(sampled_tokens, token)
+                        aligned_sampled_tokens = self._get_inflect_aligned_tokens(sampled_tokens, token)
+                        if len(aligned_sampled_tokens) == 0:
+                            aligned_sampled_tokens = sampled_tokens
+                        else:
+                            sampled_tokens = aligned_sampled_tokens
                     contexts_with_distractors, answers, answer_starts, answer_ends, distractor_starts, distractor_ends, \
                     answer_starts_in_distractor, answer_ends_in_distractor = \
                         self.replace_answer_with_new_ents_or_tokens(
@@ -795,54 +825,45 @@ class QAAttacker:
         return contexts_with_distractors, new_distractors, answers
 
     def add_distractor_sentences(self, samples):
-        import time
         ent_dict = self.ent_dict
         pos_vocab_dict = self.pos_vocab_dict
         for i, sample in enumerate(tqdm(samples, desc="add distractors")):
             if not sample.__contains__("gold_sent"):
                 continue
             edit_cnt = 0
-            try:
-                s1 = time.time()
-                if len(sample["add_candidates"]["ents"]) > 0:
-                    '''First replace all possible named entities in the gold sentence as the distractor'''
-                    contexts_with_distractor, answer_starts, answer_ends, distractor_starts, distractor_ends, \
-                    answer_starts_in_distractor, answer_ends_in_distractor, edit_cnt = self.edit_distractors(
-                        sample, ent_dict)
-                elif len(sample["add_candidates"]["nouns"]) > 0:
-                    '''First replace all possible nouns in the gold sentence as the distractor if there is no entity'''
-                    contexts_with_distractor, answer_starts, answer_ends, distractor_starts, distractor_ends, \
-                    answer_starts_in_distractor, answer_ends_in_distractor, edit_cnt = self.edit_distractors(
-                        sample, ent_dict, ents=False)
-                s2 = time.time()
-                print(s2 - s1)
-                if edit_cnt > 0:
-                    '''If it is possible that a distractor can be generated, we replace the answer in the distrator'''
-                    answer_start, answer_end = sample["best_answer"]["answer_start"], sample["best_answer"]["answer_end"]
-                    answer_former_char_offset = sample["gold_sent_front_offset"]
-                    answer_token_start, answer_token_end = \
-                        self.get_answer_spacy_token_index(sample["spacy_gold_sent"],
-                                                          answer_start - answer_former_char_offset,
-                                                          answer_end - answer_former_char_offset)
-                    spacy_answer = sample["spacy_gold_sent"][answer_token_start: answer_token_end + 1]
-                    contexts_with_distractor, distractors, answers = self.edit_answer_in_distractors(
-                            spacy_answer, contexts_with_distractor, sample, ent_dict, pos_vocab_dict, answer_starts,
-                            answer_ends, answer_starts_in_distractor, answer_ends_in_distractor, distractor_starts,
-                            distractor_ends)
-                    sample["distractors"] = distractors
-                    sample["contexts_with_distractor"] = contexts_with_distractor
-                    sample["edited_answers"] = answers
-                    sample["edited_answer_starts"] = answer_starts
-                    if sample["adversarial_mode"] == ADVERSARIAL_MODE_EDIT:
-                        sample["adversarial_mode"] = ADVERSARIAL_MODE_EDIT_AND_ADD
-                    else:
-                        sample["adversarial_mode"] = ADVERSARIAL_MODE_ADD
-                    samples[i] = sample
-                s3 = time.time()
-                print(s3 - s2)
-            except Exception as e:
-                self.logger.info(str(e))
-                self.logger.info("Error when adding distractor for sample index %d", i)
+            # try:
+            if len(sample["add_candidates"]["ents"]) > 0:
+                '''First replace all possible named entities in the gold sentence as the distractor'''
+                contexts_with_distractor, answer_starts, answer_ends, distractor_starts, distractor_ends, \
+                answer_starts_in_distractor, answer_ends_in_distractor, edit_cnt = self.edit_distractors(
+                    sample, ent_dict)
+            elif len(sample["add_candidates"]["nouns"]) > 0:
+                '''First replace all possible nouns in the gold sentence as the distractor if there is no entity'''
+                contexts_with_distractor, answer_starts, answer_ends, distractor_starts, distractor_ends, \
+                answer_starts_in_distractor, answer_ends_in_distractor, edit_cnt = self.edit_distractors(
+                    sample, ent_dict, ents=False)
+            if edit_cnt > 0:
+                '''If it is possible that a distractor can be generated, we replace the answer in the distrator'''
+                answer_start, answer_end = sample["best_answer"]["answer_start"], sample["best_answer"]["answer_end"]
+                answer_former_char_offset = sample["gold_sent_front_offset"]
+                answer_token_start, answer_token_end = \
+                    self.get_answer_spacy_token_index(sample["spacy_gold_sent"],
+                                                      answer_start - answer_former_char_offset,
+                                                      answer_end - answer_former_char_offset)
+                spacy_answer = sample["spacy_gold_sent"][answer_token_start: answer_token_end + 1]
+                contexts_with_distractor, distractors, answers = self.edit_answer_in_distractors(
+                        spacy_answer, contexts_with_distractor, sample, ent_dict, pos_vocab_dict, answer_starts,
+                        answer_ends, answer_starts_in_distractor, answer_ends_in_distractor, distractor_starts,
+                        distractor_ends)
+                sample["distractors"] = distractors
+                sample["contexts_with_distractor"] = contexts_with_distractor
+                sample["edited_answers"] = answers
+                sample["edited_answer_starts"] = answer_starts
+                if sample["adversarial_mode"] == ADVERSARIAL_MODE_EDIT:
+                    sample["adversarial_mode"] = ADVERSARIAL_MODE_EDIT_AND_ADD
+                else:
+                    sample["adversarial_mode"] = ADVERSARIAL_MODE_ADD
+                samples[i] = sample
         return samples
 
     def construct_new_dataset(self, samples):
@@ -885,7 +906,6 @@ class QAAttacker:
         return new_data, sample_cnt, miss_cnt
 
     def get_adversarial_samples(self, samples):
-        new_samples = []
         '''Add gold sentence and remove its coreference relationship for each sample'''
         samples, miss_gold_sent = self.add_gold_sent(samples)
         self.logger.info("Missing gold sent number: %d", miss_gold_sent)
@@ -902,14 +922,14 @@ class QAAttacker:
         samples = self.get_synonyms(samples)
 
         '''Edit gold sentences to get new samples'''
-        new_samples = self.get_edited_sentences(samples)
+        samples = self.get_edited_sentences(samples)
 
         '''Add distractor sentences to the new samples'''
-        new_samples = self.add_distractor_sentences(new_samples)
+        samples = self.add_distractor_sentences(samples)
 
         '''Construct the adversarial dataset based on the edited context and distractors'''
-        new_data, sample_cnt, miss_cnt = self.construct_new_dataset(new_samples)
-        return new_samples, new_data, sample_cnt, miss_cnt
+        new_data, sample_cnt, miss_cnt = self.construct_new_dataset(samples)
+        return samples, new_data, sample_cnt, miss_cnt
 
 
 def main():
@@ -943,10 +963,6 @@ def main():
         coreferences = json.load(f)["corefs"]
     samples = []
     for d_i, doc in enumerate(data):
-        # if d_i < 9:
-        #     continue
-        # if d_i > 10:
-        #     break
         for p_i, paragraph in enumerate(doc["paragraphs"]):
             context = paragraph["context"]
             context_sents = nltk.sent_tokenize(context)
@@ -964,11 +980,18 @@ def main():
                 samples.append({"context": paragraph["context"],
                                 "context_sents": context_sents,
                                 "context_sents_offsets": sents_offsets,
-                                "question": qas["question"],
+                                "question": qas["question"].strip(),
                                 "answers": qas["answers"],
                                 "id": qas["id"],
                                 "title": doc["title"],
                                 "coreferences": coreferences[d_i][p_i]})
+
+    if args.sample_start_index != -1 and args.sample_end_index == -1:
+        samples = samples[args.sample_start_index:]
+    elif args.sample_start_index == -1 and args.sample_end_index != -1:
+        samples = samples[:args.sample_end_index]
+    elif args.sample_start_index != -1 and args.sample_end_index != -1:
+        samples = samples[args.sample_start_index:args.sample_end_index]
 
     '''Generate adversarial samples for the given dataset'''
     adversarial_samples, new_data, sample_cnt, miss_cnt = qa_attacker.get_adversarial_samples(samples)
@@ -979,10 +1002,12 @@ def main():
 
     logger.info("Saved adversarial samples!")
     logger.info("The number of generated adversarial samples: " + str(sample_cnt))
-    logger.info("The original sample numbers that cannot generate any adversarial sample" + str(miss_cnt))
+    logger.info("The original sample numbers that cannot generate any adversarial sample: " + str(miss_cnt))
 
     for i in range(len(adversarial_samples)):
         sample = adversarial_samples[i]
+        if not sample.__contains__("gold_sent"):
+            continue
         edit_candidates = []
         for edit_candidate in sample["edit_candidates"]:
             edit_candidates.append({"context_index": edit_candidate[0].i, "question_index": [cc.i for cc in edit_candidate[1]]})
@@ -997,22 +1022,6 @@ def main():
         adversarial_samples[i] = sample
     with open(os.path.join(args.output_dir, "adv_track.pickle"), "wb") as f:
         pickle.dump(adversarial_samples, f)
-
-        # for i, edited_gold_sent in enumerate(sample["edited_gold_sents"]):
-        #     for distractor in sample["distractors"]:
-        #         if DISTRACTOR_INSERT_MODE  == "after":
-        #             context_sents = sample["context_sents"]
-        #             context_sents[sample["gold_sent_index"]] = edited_gold_sent
-        #             context_sents.insert(sample["gold_sent_index"] + 1, distractor)
-        #             new_context = " ". join(context_sents)
-        #         new_answers = \
-        #             [{"answer_start": sample["edited_answer_starts"][i], "text": sample["best_answer"]["text"]}] * 3
-        #         cur_doc["paragraphs"].append({"context": new_context,
-        #                                       "qas": [{"question": sample["question"],
-        #                                                "answers": new_answers,
-        #                                                "id": sample["id"] + "-" + adv_sample_index}]})
-        #         adv_sample_index += 1
-        #         cnt += 1
 
 if __name__ == "__main__":
     main()
