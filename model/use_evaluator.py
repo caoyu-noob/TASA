@@ -4,6 +4,9 @@ import tensorflow_hub as hub
 class USEEvaluator(object):
     def __init__(self, use_model_path):
         super(USEEvaluator, self).__init__()
+        physical_devices = tf.config.experimental.list_physical_devices('GPU')
+        if len(physical_devices) > 0:
+            tf.config.experimental.set_memory_growth(physical_devices[0], True)
         self.embed = hub.load(use_model_path)
 
     def cal_use_feature(self, sents):

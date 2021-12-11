@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Tuple, Optional
 
 from overrides import overrides
 
+from allennlp_models.rc.dataset_readers import utils
+
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.data.instance import Instance
@@ -11,8 +13,6 @@ from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer
 from allennlp.data.tokenizers import Token, Tokenizer
 
 from bidaf.qa_spacy_tokenizer import SpacyQATokenizer
-
-from allennlp_models.rc.dataset_readers import utils
 
 logger = logging.getLogger(__name__)
 

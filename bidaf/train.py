@@ -12,10 +12,6 @@ from os import PathLike
 from typing import Any, Dict, List, Optional, Union
 import warnings
 from argparse import Namespace
-
-import torch
-import torch.distributed as dist
-import torch.multiprocessing as mp
 from overrides import overrides
 
 from allennlp.commands.subcommand import Subcommand
@@ -30,6 +26,10 @@ from allennlp.models.archival import archive_model, CONFIG_NAME, verify_include_
 from allennlp.models.model import _DEFAULT_WEIGHTS, Model
 from bidaf.trainer import Trainer
 from bidaf import util as training_util
+
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 
 logger = logging.getLogger(__name__)
 
