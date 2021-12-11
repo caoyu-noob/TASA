@@ -837,7 +837,7 @@ class QAAttacker:
                 contexts_with_distractor, answer_starts, answer_ends, distractor_starts, distractor_ends, \
                 answer_starts_in_distractor, answer_ends_in_distractor, edit_cnt = self.edit_distractors(
                     sample, ent_dict)
-            elif len(sample["add_candidates"]["nouns"]) > 0:
+            if len(sample["add_candidates"]["nouns"]) > 0:
                 '''First replace all possible nouns in the gold sentence as the distractor if there is no entity'''
                 contexts_with_distractor, answer_starts, answer_ends, distractor_starts, distractor_ends, \
                 answer_starts_in_distractor, answer_ends_in_distractor, edit_cnt = self.edit_distractors(
