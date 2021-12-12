@@ -875,6 +875,7 @@ class GradientDescentTrainer(Trainer):
         else:
             val_generator_tqdm = validation_data_loader
 
+        prediction_dict = {}
         batches_this_epoch = 0
         val_loss = 0.0
         val_batch_loss = 0.0
@@ -929,6 +930,10 @@ class GradientDescentTrainer(Trainer):
                 world_size=self._world_size,
                 cuda_device=self.cuda_device,
             )
+            batch_ids = [data["id"] for data in batch["metadata"]]
+            pred_strs = [string for string in batch_outputs["best_span_str"]]
+            for sid, string in zip(batch_ids, pred_strs):
+                prediction_dict[sid] = string
 
             description = training_util.description_from_metrics(val_metrics)
             if self._master:
@@ -959,7 +964,7 @@ class GradientDescentTrainer(Trainer):
         if self._moving_average is not None:
             self._moving_average.restore()
 
-        return val_loss, val_reg_loss, batches_this_epoch
+        return val_loss, val_reg_loss, batches_this_epoch, prediction_dict
 
     def train(self) -> Dict[str, Any]:
         """
@@ -982,7 +987,7 @@ class GradientDescentTrainer(Trainer):
         if self._validation_data_loader is not None:
             with torch.no_grad():
                 # We have a validation set, so compute all the metrics on it.
-                val_loss, val_reg_loss, num_batches = self._validation_loss(-1)
+                val_loss, val_reg_loss, num_batches, pred_dict = self._validation_loss(-1)
 
                 # It is safe again to wait till the validation is done. This is
                 # important to get the metrics right.
@@ -1007,7 +1012,7 @@ class GradientDescentTrainer(Trainer):
                     os.path.join(self._serialization_dir, f"metrics_predict.json"),
                     metrics,
                 )
-        return metrics
+        return metrics, pred_dict
 
     def _try_train(self) -> Dict[str, Any]:
         try:

@@ -8,6 +8,7 @@ import argparse
 import logging
 import pickle
 import os
+import json
 from os import PathLike
 from typing import Any, Dict, List, Optional, Union
 import warnings
@@ -468,7 +469,10 @@ def _train_worker(
         if distributed:  # let the setup get ready for all the workers
             dist.barrier()
         if args.do_predict:
-            metrics = train_loop.predict()
+            metrics, pred_dict = train_loop.predict()
+            if args.prediction_file:
+                with open(args.prediction_file, "w", encoding="utf-8") as f:
+                    json.dump(pred_dict, f)
         else:
             metrics = train_loop.run()
     except KeyboardInterrupt:

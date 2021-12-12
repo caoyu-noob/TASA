@@ -63,6 +63,12 @@ parser.add_argument(
     type=str,
     help="The path for the loaded model"
 )
+parser.add_argument(
+    "--prediction_file",
+    default=None,
+    type=str,
+    help="The path for the prediction dict file"
+)
 
 
 args = parser.parse_args()
