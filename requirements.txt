@@ -1,0 +1,9 @@
+torch==1.7.0
+tensorflow-gpu==2.6.0
+transformers==4.1.0
+spacy==3.0.7
+nltk==3.5
+neuralcoref==4.0
+pyinflect==0.5.1
+allennlp==1.5.0
+allennlp-models==1.5.0
