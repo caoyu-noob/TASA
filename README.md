@@ -15,15 +15,19 @@ Your may encounter module missing error, please fix them according to the system
 1. [USE model](https://tfhub.dev/google/universal-sentence-encoder/4), put it under `USE_PATH`
 2. [Small size GPT2 model](https://huggingface.co/gpt2/), put it under `GPT2_PATH`
 3. [BERT base uncased model](https://huggingface.co/bert-base-uncased), put it under `BERT_PATH`
-4. [RoBerta base model](https://huggingface.co/roberta-base), put it under `ROBERTA_PATH`
-5. [GLoVe 6B 100d embedding](https://nlp.stanford.edu/data/glove.6B.zip), put it under `GLOVE_PATH`
+4. [SpanBERT large cased model](https://huggingface.co/SpanBERT/spanbert-large-cased), put it under `SPANBERT_PATH`
+5. [RoBerta base model](https://huggingface.co/roberta-base), put it under `ROBERTA_PATH`
+6. [GLoVe 6B 100d embedding](https://nlp.stanford.edu/data/glove.6B.zip), put it under `GLOVE_PATH`
 
 ####2 Download QA datasets 
 Put them under `./data/DATASET_NAME`, an example is given in `./data/squad/`, where 
 you need to edit a python file `DATASET_NAME.py` as the dataloader. In `squad.py` we use `dev-v1.1.json` for
 both training and dev sets.
 
-####3 Train a sample answerable determine model $F_J$
+For datasets from [MRQA](https://github.com/mrqa/MRQA-Shared-Task-2019), including NewsQA, Natural Questions, 
+HotpotQA, and TriviaQA, using `./utility_scripts/convert_mrqa_to_squad.py` to convert these datasets into SQuAD format.
+
+####3 Train a sample answerable determine model
 
 Use `utility_scrips/get_no_answer_dataset.py` to obtain training samples with unanswerable samples for the dataset.
 You will get two JSON files named `DATASET_NAME_TRAIN.json_no_answer` and `DATASET_NAME_DEV.json_no_answer`, using 
@@ -46,6 +50,17 @@ python train_squad.py \
 --model_name_or_path BERT_PATH \
 --dataset_name ./data/DATASET_NAME \
 --output_dir TRAINED_BERT_PATH \
+--version_2_with_negative 0 \
+```
+Train the SpanBERT model using the following command and obtain the trained SpanBERT under `TRAINED_SPANBERT_PATH`
+```
+python train_squad.py \
+--model_name_or_path SPANBERT_PATH \
+--max_seq_length 512 \
+--do_lower_case 0 \
+--learning_rate 2e-5 \
+--dataset_name ./data/DATASET_NAME \
+--output_dir TRAINED_SPANBERT_PATH \
 --version_2_with_negative 0 \
 ```
 Train the BiDAF model using the following command and obtain the trained BiDAF under `TRAINED_BIDAF_PATH`
@@ -91,6 +106,23 @@ python TASA.py \
 --beam_size 5 \
 ```
 
+Use the follow comman to attack the SpanBERT model and obtain the adversarial samples in `SPANBERT_ATTACK_OUTPUT`
+```
+python TASA.py \
+--target_dataset_file ./data/DATASET_NAME/DEV_FILE.json \
+--target_model TRAINED_BERT_PATH \
+--target_model_type spanbert \
+--output_dir SPANBERT_ATTACK_OUTPUT \
+--target_dataset_type squad
+--ent_dict_file ENT_DICT \
+--coreference_file COREFERENCE_FILE \
+--pos_vocab_dict_file POS_VOCAB_DICT \
+--USE_model_path USE_PATH \
+--ppl_model_path GPT2_PATH \
+--determine_model_path DETERMINE_MODEL_PATH \
+--beam_size 5 \
+```
+
 Similarly, use the following command to attack the BiDAF model and obtain the adversarial samples in `BIDAF_ATTACK_OUTPUT`
 ```
 python TASA.py \
@@ -115,6 +147,16 @@ python train_squad.py \
 --model_name_or_path TRAINED_BERT_PATH \
 --dataset_name ./data/ADVERSARIAL_DATA \
 --output_dir TRAINED_BERT_PATH \
+--do_predict \
+```
+Or
+```
+python train_squad.py \
+--model_name_or_path TRAINED_SPANBERT_PATH \
+--dataset_name ./data/ADVERSARIAL_DATA \
+--output_dir TRAINED_BERT_PATH \
+--max_seq_length 512 \
+--do_lower_case 0 \
 --do_predict \
 ```
 Or
