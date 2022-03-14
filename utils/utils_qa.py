@@ -91,6 +91,7 @@ def postprocess_qa_predictions(
     # Logging.
     logger.setLevel(logging.INFO if is_world_process_zero else logging.WARN)
     logger.info(f"Post-processing {len(examples)} example predictions split into {len(features)} features.")
+    errors = []
 
     # Let's loop over all the examples!
     for example_index, example in enumerate(tqdm(examples)):
@@ -143,14 +144,18 @@ def postprocess_qa_predictions(
                     # provided).
                     if token_is_max_context is not None and not token_is_max_context.get(str(start_index), False):
                         continue
-                    prelim_predictions.append(
-                        {
-                            "offsets": (offset_mapping[start_index][0], offset_mapping[end_index][1]),
-                            "score": start_logits[start_index] + end_logits[end_index],
-                            "start_logit": start_logits[start_index],
-                            "end_logit": end_logits[end_index],
-                        }
-                    )
+                    try:
+                        prelim_predictions.append(
+                            {
+                                "offsets": (offset_mapping[start_index][0], offset_mapping[end_index][1]),
+                                "score": start_logits[start_index] + end_logits[end_index],
+                                "start_logit": start_logits[start_index],
+                                "end_logit": end_logits[end_index],
+                            }
+                        )
+                    except Exception as e:
+                        print(feature_index)
+                        errors.append([feature_index, offset_mapping[start_index], offset_mapping[end_index]])
         if version_2_with_negative:
             # Add the minimum null prediction
             prelim_predictions.append(min_null_prediction)
@@ -208,6 +213,9 @@ def postprocess_qa_predictions(
             for pred in predictions
         ]
 
+    if len(errors) > 0:
+        import torch
+        torch.save(errors, "errors.bin")
     return all_predictions, all_nbest_json
 
 

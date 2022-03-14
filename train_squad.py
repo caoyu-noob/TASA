@@ -237,6 +237,12 @@ def parse_args():
         action="store_true",
         help="If passed, will test metrics for both adversarial samples and original samples.",
     )
+    parser.add_argument(
+        "--do_lower_case",
+        type=int,
+        default=1,
+        help="Set this flag if you are using an uncased model.",
+    )
 
     args = parser.parse_args()
 
@@ -464,10 +470,11 @@ def main():
         config = CONFIG_MAPPING[args.model_type]()
         logger.warning("You are instantiating a new config instance from scratch.")
 
+    do_lower_case = True if args.do_lower_case == 1 else False
     if args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True)
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=True, do_lower_case=do_lower_case)
     elif args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=True, do_lower_case=do_lower_case)
     else:
         raise ValueError(
             "You are instantiating a new tokenizer from scratch. This is not supported by this script."
@@ -647,9 +654,9 @@ def main():
             remove_columns=column_names,
             load_from_cache_file=not args.overwrite_cache,
         )
-        # if args.max_train_samples is not None:
-        #     # Number of samples might increase during Feature Creation, We select only specified max samples
-        #     train_dataset = train_dataset.select(range(args.max_train_samples))
+        if args.max_train_samples is not None:
+            # Number of samples might increase during Feature Creation, We select only specified max samples
+            train_dataset = train_dataset.select(range(args.max_train_samples))
 
         if "validation" not in raw_datasets:
             raise ValueError("--do_eval requires a validation dataset")

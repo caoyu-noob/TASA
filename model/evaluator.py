@@ -27,16 +27,22 @@ from transformers import (
     set_seed,
 )
 
+SPANBERT_MAX_LENGTH = 512
+
 class QAEvaluator():
     def __init__(self, model_name_or_path, metric_path, model_type, batch_size=8, max_seq_len=384, doc_stride=128):
         self.model_type = model_type
-        if self.model_type == "bert":
+        if self.model_type == "bert" or self.model_type == "spanbert":
             self.accelerator = Accelerator()
             self.metric = load_metric(metric_path)
             self.config = AutoConfig.from_pretrained(model_name_or_path)
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
+            if model_type == "bert":
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True)
+                self.max_seq_len = min(max_seq_len, self.tokenizer.model_max_length)
+            elif model_type == "spanbert":
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=True, do_lower_case=False)
+                self.max_seq_len = SPANBERT_MAX_LENGTH
             self.model = AutoModelForQuestionAnswering.from_pretrained(model_name_or_path)
-            self.max_seq_len = min(max_seq_len, self.tokenizer.model_max_length)
         elif self.model_type == "bidaf":
             self.device_id = -1
             if torch.cuda.device_count() > 0:
@@ -214,7 +220,7 @@ class QAEvaluator():
         :param answer_end_pos (obj list): the list of the answer end char positions in the context
         :return: the predicted logits on the answer start and end positions
         '''
-        if self.model_type == "bert":
+        if self.model_type == "bert" or self.model_type == "spanbert":
             all_start_logits, all_end_logits, answer_start_logits, answer_end_logits, start_positions, end_positions = \
                 self._bert_evaluate_sample_logits(beam_contexts, question, answer_start_char, answer_end_char,
                                                   single_question, desc)

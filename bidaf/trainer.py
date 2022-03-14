@@ -1063,7 +1063,7 @@ class GradientDescentTrainer(Trainer):
             if self._validation_data_loader is not None:
                 with torch.no_grad():
                     # We have a validation set, so compute all the metrics on it.
-                    val_loss, val_reg_loss, num_batches = self._validation_loss(epoch)
+                    val_loss, val_reg_loss, num_batches, _ = self._validation_loss(epoch)
 
                     # It is safe again to wait till the validation is done. This is
                     # important to get the metrics right.
