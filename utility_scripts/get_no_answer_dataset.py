@@ -40,13 +40,13 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-with open(args.input_train_file, "r", encoding="utf-8") as f:
+with open(args.input_train_dataset, "r", encoding="utf-8") as f:
     train_data = json.load(f)
-with open(args.input_dev_file, "r", encoding="utf-8") as f:
+with open(args.input_dev_dataset, "r", encoding="utf-8") as f:
     dev_data = json.load(f)
 new_train_data = get_no_answer_samples(train_data["data"])
 new_dev_data = get_no_answer_samples(dev_data["data"])
-with open(args.input_train_file + "_no_answer", "w", encoding="utf-8") as f:
+with open(args.input_train_dataset + "_no_answer", "w", encoding="utf-8") as f:
     json.dump({"data": new_train_data, "version": train_data["version"], "len": train_data["len"] * 2}, f)
-with open(args.input_train_file + "_no_answer", "w", encoding="utf-8") as f:
+with open(args.input_dev_dataset + "_no_answer", "w", encoding="utf-8") as f:
     json.dump({"data": new_dev_data, "version": dev_data["version"], "len": dev_data["len"] * 2}, f)
