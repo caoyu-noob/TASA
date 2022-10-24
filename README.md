@@ -1,17 +1,20 @@
 # TASA: Twin Answer Sentences Attack for Adversarial Context Generation in Question Answering
-Code for anonymous paper submission of ARR Dec. 2021.
+Implementation for EMNLP 2022 paper TASA by Yu Cao, Dianqi Li, Meng Fang, Tianyi Zhou, Jun Gao, Yibing Zhan and Dacheng 
+Tao.
 
-##Environment
+## Environment
 
 You need Python>=3.7.0
 
 I have put some main packages required under `requirements.txt` in the root directory.
 
-Your may encounter module missing error, please fix them according to the system log.
+Your may still encounter dependency missing errors, please fix them according to the system output.
 
-##Preparation
+We use a single 16GB V100 GPU or a single 12GB RTX 3080Ti GPU in our experiments. At least 12GB GPU memory is needed.
 
-####1 You need to download the following models
+## Preparation
+
+#### 1 You need to download the following models
 1. [USE model](https://tfhub.dev/google/universal-sentence-encoder/4), put it under `USE_PATH`
 2. [Small size GPT2 model](https://huggingface.co/gpt2/), put it under `GPT2_PATH`
 3. [BERT base uncased model](https://huggingface.co/bert-base-uncased), put it under `BERT_PATH`
@@ -19,7 +22,7 @@ Your may encounter module missing error, please fix them according to the system
 5. [RoBerta base model](https://huggingface.co/roberta-base), put it under `ROBERTA_PATH`
 6. [GLoVe 6B 100d embedding](https://nlp.stanford.edu/data/glove.6B.zip), put it under `GLOVE_PATH`
 
-####2 Download QA datasets 
+#### 2 Download QA datasets 
 Put them under `./data/DATASET_NAME`, an example is given in `./data/squad/`, where 
 you need to edit a python file `DATASET_NAME.py` as the dataloader. In `squad.py` we use `dev-v1.1.json` for
 both training and dev sets.
@@ -27,7 +30,7 @@ both training and dev sets.
 For datasets from [MRQA](https://github.com/mrqa/MRQA-Shared-Task-2019), including NewsQA, Natural Questions, 
 HotpotQA, and TriviaQA, using `./utility_scripts/convert_mrqa_to_squad.py` to convert these datasets into SQuAD format.
 
-####3 Train a sample answerable determine model
+#### 3 Train a sample answerable determine model
 
 Use `utility_scrips/get_no_answer_dataset.py` to obtain training samples with unanswerable samples for the dataset.
 You will get two JSON files named `DATASET_NAME_TRAIN.json_no_answer` and `DATASET_NAME_DEV.json_no_answer`, using 
@@ -43,7 +46,7 @@ python train_squad.py \
 ```
 Obtain the determine model under `DETERMINE_MODEL_PATH`
 
-####4 Train the victim model $F(\cdot)$
+#### 4 Train the victim model $F(\cdot)$
 Train the BERT model using the following command and obtain the trained BERT under `TRAINED_BERT_PATH`
 ```
 python train_squad.py \
@@ -76,7 +79,7 @@ python train_bidaf.py \
 --num_gradient_accumulation_steps 2 \
 ```
 
-####5 Get the coreference file for dev set
+#### 5 Get the coreference file for dev set
 Using the following command to get the file `COREFERENCE_FILE` containing coreference relationship of the target attack dataset
 ```
 python ./utility_scripts/get_coreference.py \
@@ -84,12 +87,12 @@ python ./utility_scripts/get_coreference.py \
 --output_file COREFERENCE_FILE \
 ```
 
-####6 Get named entity dictionary and POS tag dictionary for current dataset
+#### 6 Get named entity dictionary and POS tag dictionary for current dataset
 Using the script `./utility/extact_entities_pos_vocab.py`. You can set the input dataset JSON files within the script,
 and the output file paths to get `ENT_DICT` and `POS_VOCAB_DICT`, which will be used for candidate sampling in attack.
 
-##Attack
-Use the follow comman to attack the BERT model and obtain the adversarial samples in `BERT_ATTACK_OUTPUT`
+## Attack
+Use the follow command to attack the BERT model and obtain the adversarial samples in `BERT_ATTACK_OUTPUT`
 ```
 python TASA.py \
 --target_dataset_file ./data/DATASET_NAME/DEV_FILE.json \
@@ -106,7 +109,7 @@ python TASA.py \
 --beam_size 5 \
 ```
 
-Use the follow comman to attack the SpanBERT model and obtain the adversarial samples in `SPANBERT_ATTACK_OUTPUT`
+Use the follow command to attack the SpanBERT model and obtain the adversarial samples in `SPANBERT_ATTACK_OUTPUT`
 ```
 python TASA.py \
 --target_dataset_file ./data/DATASET_NAME/DEV_FILE.json \
@@ -140,7 +143,7 @@ python TASA.py \
 --beam_size 5 \
 ```
 
-###Test adversarial samples
+### Test adversarial samples
 You an use the following command to test the performance of models on the adversarial samples
 ```
 python train_squad.py \
