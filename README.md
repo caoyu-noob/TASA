@@ -1,6 +1,7 @@
 # TASA: Twin Answer Sentences Attack for Adversarial Context Generation in Question Answering
 Implementation for EMNLP 2022 paper TASA by Yu Cao, Dianqi Li, Meng Fang, Tianyi Zhou, Jun Gao, Yibing Zhan and Dacheng 
 Tao.
+![TASA Framework](https://github.com/caoyu-noob/TASA/blob/master/TASA.JPG)
 
 ## Environment
 
