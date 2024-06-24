@@ -176,3 +176,10 @@ python train_bidaf.py \
 --model_path TRAINED_BIDAF_PATH \
 --prediction_file squad_bidaf_predicitons.json \
 ```
+
+## Attacked datasets
+Updated on Jun 24, 2024.
+
+We have provided some adversarial samples after attack under `./data/attack_data`. Each `.zip` file include the attacked 
+samples for the corresponding dataset. Since it is a repo long time ago, it is hard for me to find out all attacking 
+results(I put all of them on the storage servers of USYD, but I do not have the authority to access them now after my graduation). 
